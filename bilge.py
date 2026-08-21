@@ -1,6 +1,13 @@
 import anthropic, subprocess, threading, http.server, socketserver, json, time, re, queue, os, sys, signal
 from datetime import datetime, timedelta
 
+# Terminal locale UTF-8 olmasa bile Turkce karakter (u,i,s,c,g,o) input()'ta cokmesin
+try:
+    sys.stdin.reconfigure(encoding="utf-8", errors="replace")
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+except Exception:
+    pass
+
 REPO="https://raw.githubusercontent.com/sermenkreatif/bilge/main"
 DOSYALAR=["bilge_arayuz.html","bilge.py","bilge_sistem.txt","bilge_bilgi.txt"]
 
@@ -116,12 +123,20 @@ def video_bul(arama):
     muzik_durdur()
     def _iste():
         try:
-            cikti=subprocess.check_output(["yt-dlp","--get-title","--get-id","ytsearch1:"+arama],
-                  stderr=subprocess.DEVNULL,timeout=45).decode().strip().split("\n")
+            cikti=subprocess.check_output(
+                  ["yt-dlp","--no-warnings","--print","%(title)s\n%(id)s","ytsearch1:"+arama],
+                  stderr=subprocess.STDOUT,timeout=60).decode("utf-8","ignore").strip().split("\n")
+            cikti=[x for x in cikti if x.strip()]
             if len(cikti)>=2:
-                baslik=baslik_temizle(cikti[0]); vid=cikti[-1].strip()
-                if vid: DURUM["video"]={"id":vid,"ad":baslik}
-        except: pass
+                vid=cikti[-1].strip(); baslik=baslik_temizle(cikti[-2])
+                if len(vid)>=8 and " " not in vid:
+                    DURUM["video"]={"id":vid,"ad":baslik}; print("VIDEO bulundu:",vid,"|",baslik)
+                else:
+                    print("VIDEO id gecersiz:",repr(cikti))
+            else:
+                print("VIDEO sonuc yok:",repr(cikti))
+        except Exception as e:
+            print("VIDEO hata:",e)
     threading.Thread(target=_iste,daemon=True).start()
     return None
 
@@ -375,7 +390,12 @@ def klavye_dongusu():
     threading.Thread(target=web_dinle,args=(gecmis,),daemon=True).start()
     threading.Thread(target=hatirlatma_kontrol,daemon=True).start()
     while True:
-        soru=input("Sen: ")
+        try:
+            soru=input("Sen: ")
+        except UnicodeDecodeError:
+            print("(girdi cozulemedi, tekrar yaz)"); continue
+        except EOFError:
+            break
         if soru=="q": break
         with _kilit:
             dusun_cevapla(soru, gecmis)

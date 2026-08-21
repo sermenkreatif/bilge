@@ -171,7 +171,7 @@ document.getElementById("gonder").addEventListener("click",mesajGonder);
 document.getElementById("giris").addEventListener("keydown",function(e){if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();mesajGonder();}});
 
 var cv=document.getElementById("cv"),ctx=cv.getContext("2d"),dpr,W,H,cx,cy,SC;
-function rz(){dpr=Math.min(devicePixelRatio||1,2);W=innerWidth;H=innerHeight;cv.width=W*dpr;cv.height=H*dpr;
+function rz(){dpr=Math.min(devicePixelRatio||1,1.5);W=innerWidth;H=innerHeight;cv.width=W*dpr;cv.height=H*dpr;
   ctx.setTransform(dpr,0,0,dpr,0,0);cx=W/2;cy=H/2;SC=Math.min(W,H)/300;}
 addEventListener("resize",rz);rz();
 
@@ -365,36 +365,37 @@ function merkez(s,ana,beyaz,gen,amp){
   var gg=ctx.createRadialGradient(cx,cy,1,cx,cy,Rg);
   gg.addColorStop(0,kir+(0.5*gen*(0.5+amp*0.5))+")");gg.addColorStop(0.6,kir+(0.16*gen)+")");gg.addColorStop(1,kir+"0)");
   ctx.globalAlpha=1;ctx.fillStyle=gg;ctx.beginPath();ctx.arc(cx,cy,Rg,0,7);ctx.fill();
-  ctx.globalAlpha=gen*0.75;ctx.shadowBlur=10;ctx.shadowColor=kir+"0.7)";
-  ctx.strokeStyle=parlak+"0.9)";ctx.lineWidth=1.6*s;ctx.beginPath();ctx.arc(cx,cy,Rg,0,7);ctx.stroke();ctx.shadowBlur=0;
+  ctx.globalAlpha=gen*0.4;ctx.strokeStyle=kir+"0.9)";ctx.lineWidth=4.2*s;ctx.beginPath();ctx.arc(cx,cy,Rg,0,7);ctx.stroke();
+  ctx.globalAlpha=gen*0.85;ctx.strokeStyle=parlak+"0.95)";ctx.lineWidth=1.6*s;ctx.beginPath();ctx.arc(cx,cy,Rg,0,7);ctx.stroke();
   ctx.globalAlpha=gen*0.5;ctx.strokeStyle=kir+"0.9)";ctx.lineWidth=1.2*s;
   ctx.beginPath();ctx.arc(cx,cy,Rg*1.35,0,7);ctx.stroke();
 
-  // ses dalgasi halkalari
+  // ses dalgasi halkalari (shadowBlur YOK -> Pi'de hafif; isima cift cizgi ile)
   ctx.lineCap="round";
   for(var i=0;i<dalgaHalka.length;i++){var R=dalgaHalka[i],BR=Rg*R.r,ph=t*R.sp*3;
     ctx.beginPath();
-    for(var a=0;a<=200;a++){var th=a/200*Math.PI*2;var rr=BR*(1+R.amp*(0.4+amp)*dalgaF(th,R.h,ph));
+    for(var a=0;a<=110;a++){var th=a/110*Math.PI*2;var rr=BR*(1+R.amp*(0.4+amp)*dalgaF(th,R.h,ph));
       var x=cx+Math.cos(th)*rr,y=cy+Math.sin(th)*rr;if(a===0)ctx.moveTo(x,y);else ctx.lineTo(x,y);}
     ctx.closePath();
-    ctx.shadowBlur=9;ctx.shadowColor=kir+"0.7)";
-    ctx.strokeStyle=parlak+(R.al*gen*(0.5+amp*0.5))+")";ctx.lineWidth=R.w*s;ctx.stroke();
-    ctx.shadowBlur=0;ctx.strokeStyle=kir+(R.al*gen*0.4)+")";ctx.lineWidth=0.6*s;ctx.stroke();}
+    ctx.strokeStyle=kir+(R.al*gen*0.30)+")";ctx.lineWidth=(R.w+2.6)*s;ctx.stroke();
+    ctx.strokeStyle=parlak+(R.al*gen*(0.55+amp*0.45))+")";ctx.lineWidth=R.w*s;ctx.stroke();}
 
   // disari yayilan ses nabzi
   var ph2=1+amp*1.2;
   if(t-lp>1.4/ph2){pulse.push({r:Rg*1.4,a:0.42});lp=t;}
-  for(var p=pulse.length-1;p>=0;p--){var P=pulse[p];P.r+=1.3*ph2*s;P.a*=0.982;
+  for(var p=pulse.length-1;p>=0;p--){var P=pulse[p];P.r+=2.6*ph2*s;P.a*=0.982;
     if(P.a<0.02){pulse.splice(p,1);continue;}
     ctx.beginPath();
-    for(var a=0;a<=140;a++){var th=a/140*Math.PI*2;var rr=P.r*(1+0.012*Math.sin(th*10+t*4));
+    for(var a=0;a<=90;a++){var th=a/90*Math.PI*2;var rr=P.r*(1+0.012*Math.sin(th*10+t*4));
       var x=cx+Math.cos(th)*rr,y=cy+Math.sin(th)*rr;if(a===0)ctx.moveTo(x,y);else ctx.lineTo(x,y);}
     ctx.closePath();ctx.globalAlpha=gen;ctx.strokeStyle=parlak+P.a+")";ctx.lineWidth=1*s;ctx.stroke();}
 
   // cekirdek parlak nokta
-  ctx.globalAlpha=1;ctx.shadowBlur=14;ctx.shadowColor=kir+"0.9)";
-  ctx.fillStyle=bey+"1)";ctx.beginPath();ctx.arc(cx,cy,2.6*s+amp*2*s,0,7);ctx.fill();ctx.shadowBlur=0;
-
+  // cekirdek: yumusak hale + parlak nokta
+  ctx.globalAlpha=1;var cd=ctx.createRadialGradient(cx,cy,0.5,cx,cy,15*s);
+  cd.addColorStop(0,bey+"0.9)");cd.addColorStop(0.35,kir+(0.5*gen)+")");cd.addColorStop(1,kir+"0)");
+  ctx.fillStyle=cd;ctx.beginPath();ctx.arc(cx,cy,15*s,0,7);ctx.fill();
+  ctx.fillStyle=bey+"1)";ctx.beginPath();ctx.arc(cx,cy,2.6*s+amp*2*s,0,7);ctx.fill();
   ctx.restore();ctx.globalAlpha=1;
 }
 
@@ -420,10 +421,11 @@ function ambientAyarla(tip){
 }
 
 var t=0,mmix=0,sahneSon=0;
-function draw(){try{cizKare();}catch(e){}requestAnimationFrame(draw);}
+var _sonKare=0;
+function draw(ts){requestAnimationFrame(draw);if(ts&&ts-_sonKare<31)return;_sonKare=ts||0;try{cizKare();}catch(e){}}
 function cizKare(){
   var hedefMix=MUZIK?1:0;mmix+=(hedefMix-mmix)*0.06;
-  t+=0.016*(1+mmix*0.4);
+  t+=0.03*(1+mmix*0.4);
   ctx.clearRect(0,0,W,H);
   var s=SC;
   var ana=(TEMA==="dark")?[227,10,23]:[193,18,31];
