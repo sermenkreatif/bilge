@@ -1,0 +1,257 @@
+import anthropic, subprocess, threading, http.server, socketserver, json, time, re, queue, os
+from datetime import datetime
+
+MIKROFON = False
+DURUM = {"d":"hazir","duygu":"sakin","muzik":False,"muzik_ad":"","sahne":"yok","tema":"light","soz":"","panel":None}
+_gelen = queue.Queue()
+_kilit = threading.Lock()
+
+class Sunucu(socketserver.ThreadingTCPServer):
+    allow_reuse_address = True
+class H(http.server.BaseHTTPRequestHandler):
+    def _cors(s):
+        s.send_header("Access-Control-Allow-Origin","*")
+        s.send_header("Access-Control-Allow-Headers","Content-Type")
+    def do_OPTIONS(s):
+        s.send_response(200); s._cors(); s.end_headers()
+    def do_GET(s):
+        s.send_response(200); s.send_header("Content-Type","application/json"); s._cors(); s.end_headers()
+        s.wfile.write(json.dumps(DURUM).encode())
+    def do_POST(s):
+        n=int(s.headers.get("Content-Length",0))
+        veri=s.rfile.read(n).decode("utf-8") if n else ""
+        try:
+            d=json.loads(veri); mesaj=d.get("mesaj","").strip()
+            if d.get("panel_kapat"): DURUM["panel"]=None
+        except: mesaj=""
+        if mesaj: _gelen.put(mesaj)
+        s.send_response(200); s.send_header("Content-Type","application/json"); s._cors(); s.end_headers()
+        s.wfile.write(b'{"ok":true}')
+    def log_message(s,*a): pass
+def sunucu():
+    with Sunucu(("0.0.0.0",8137),H) as sv: sv.serve_forever()
+threading.Thread(target=sunucu,daemon=True).start()
+
+HATIRLATMA_DOSYA="/home/ilhan/hatirlatmalar.json"
+def hatirlatma_yukle():
+    try:
+        with open(HATIRLATMA_DOSYA,encoding="utf-8") as f: return json.load(f)
+    except: return []
+def hatirlatma_kaydet(liste):
+    try:
+        with open(HATIRLATMA_DOSYA,"w",encoding="utf-8") as f: json.dump(liste,f,ensure_ascii=False,indent=2)
+    except: pass
+HATIRLATMALAR=hatirlatma_yukle()
+def liste_panele():
+    aktif=[h for h in HATIRLATMALAR if not h.get("bitti")]
+    if not aktif:
+        DURUM["panel"]={"baslik":"Yapilacaklar","icerik":"Su an bekleyen bir sey yok."}; return
+    sat=[]
+    for h in aktif:
+        if h.get("zaman"): sat.append("- "+h["zaman"]+" - "+h["metin"])
+        else: sat.append("- "+h["metin"])
+    DURUM["panel"]={"baslik":"Yapilacaklar ve Hatirlatmalar","icerik":"\n".join(sat)}
+
+client = anthropic.Anthropic()
+ARAC = [{"type":"web_search_20250305","name":"web_search","max_uses":5}]
+SISTEM = open("/home/ilhan/bilge_sistem.txt", encoding="utf-8").read()
+SES = "tr-TR-EmelNeural"
+
+_muzik={"p":None}
+def baslik_temizle(b):
+    b=re.sub(r'[\(\[\{][^)\]\}]*(?:official|video|audio|lyric|lyrics|visualizer|visualiser|remaster|remastered|4k|8k|hd|hq|full ?hd|mv|clip|klip|muzik|prod|explicit|sub|turkce|ceviri|color coded)[^)\]\}]*[\)\]\}]','',b,flags=re.IGNORECASE)
+    b=re.sub(r'\s*[\-\|]\s*(?:official\s*)?(?:music\s*)?(?:video|audio|lyric\s*video|visualizer)\s*$','',b,flags=re.IGNORECASE)
+    b=re.sub(r'\s{2,}',' ',b).strip(' -|\u00b7\u2014')
+    return b or "Muzik"
+
+def muzik_cal(arama):
+    muzik_durdur()
+    try:
+        cikti=subprocess.check_output(["yt-dlp","-f","bestaudio","-g","--get-title","ytsearch1:"+arama],
+              stderr=subprocess.DEVNULL,timeout=45).decode().strip().split("\n")
+        baslik=baslik_temizle(cikti[0] if len(cikti)>=2 else arama)
+        link=cikti[-1]
+        if link.startswith("http"):
+            _muzik["p"]=subprocess.Popen(["mpv","--no-video","--ao=alsa","--audio-device=alsa/plughw:1,0",link],
+                        stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+            DURUM["muzik"]=True; DURUM["muzik_ad"]=baslik; return baslik
+    except: pass
+    return None
+def muzik_durdur():
+    if _muzik["p"] and _muzik["p"].poll() is None: _muzik["p"].terminate()
+    _muzik["p"]=None; DURUM["muzik"]=False; DURUM["muzik_ad"]=""
+
+# --- Sese giden metni insanlastir: markdown/baslik/liste isaretlerini temizle ---
+def ses_metni(m):
+    satirlar=[]
+    for s in m.split("\n"):
+        s=s.strip()
+        if not s: continue
+        s=re.sub(r'^#{1,6}\s*','',s)
+        s=re.sub(r'^[-*\u2022]\s+','',s)
+        s=re.sub(r'^\d+[\.\)]\s+','',s)
+        s=s.rstrip(':')
+        satirlar.append(s)
+    t=" ".join(satirlar)
+    t=t.replace("**","").replace("__","").replace("*","").replace("`","").replace("#","")
+    t=re.sub(r'\s+',' ',t).strip()
+    return t
+
+_calan={"p":None}
+def konus(metin):
+    metin=ses_metni(metin)
+    if not metin: return
+    DURUM["soz"]=metin[:220]
+    DURUM["d"]="konusuyor"
+    import edge_tts, asyncio
+    async def _u(): await edge_tts.Communicate(metin, SES).save("/tmp/b.mp3")
+    asyncio.run(_u())
+    p=subprocess.Popen(["ffplay","-nodisp","-autoexit","-loglevel","quiet","/tmp/b.mp3"])
+    _calan["p"]=p; p.wait(); _calan["p"]=None
+    DURUM["d"]="hazir"
+def sustur():
+    if _calan["p"] and _calan["p"].poll() is None: _calan["p"].terminate()
+
+def dusun_cevapla(soru, gecmis):
+    DURUM["d"]="dusunuyor"
+    gecmis.append({"role":"user","content":soru})
+    while True:
+        y=client.messages.create(model="claude-sonnet-4-6",max_tokens=800,
+            system=SISTEM+" Bugunun tarihi: "+datetime.now().strftime("%d.%m.%Y")+" COK ONEMLI SON HATIRLATMA: Bu cevabin tamami bastan sona Turkce olacak. Tek bir Ingilizce kelime bile kullanma. Ingilizce dusunme, Turkce dusun ve Turkce yaz.",
+            tools=ARAC,messages=gecmis)
+        gecmis.append({"role":"assistant","content":y.content})
+        if y.stop_reason=="pause_turn": continue
+        break
+    tam="".join(b.text for b in y.content if b.type=="text").strip()
+    duygu="sakin"; sahne=None; tema=None; muzik_k=None
+    for anahtar in ["DUYGU","SAHNE","TEMA","MUZIK"]:
+        while "["+anahtar+":" in tam:
+            try:
+                bas=tam.index("["+anahtar+":"); son=tam.index("]",bas)
+                deger=tam[bas+len(anahtar)+2:son].strip()
+                tam=(tam[:bas]+tam[son+1:]).strip()
+                if anahtar=="DUYGU": duygu=deger
+                elif anahtar=="SAHNE": sahne=deger
+                elif anahtar=="TEMA": tema=deger
+                elif anahtar=="MUZIK": muzik_k=deger
+            except: break
+    # PANEL: ekranda gosterilecek liste/detay blogu (seslendirilmez)
+    if "[PANEL:KAPAT]" in tam:
+        tam=tam.replace("[PANEL:KAPAT]","").strip(); DURUM["panel"]=None
+    if "[PANEL]" in tam and "[/PANEL]" in tam:
+        pb=tam.index("[PANEL]"); pe=tam.index("[/PANEL]")
+        ham=tam[pb+7:pe].strip(); tam=(tam[:pb]+tam[pe+8:]).strip()
+        sat=[x for x in ham.split("\n")]
+        baslik=sat[0].strip() if sat else ""
+        govde="\n".join(sat[1:]).strip() if len(sat)>1 else ""
+        DURUM["panel"]={"baslik":baslik,"icerik":govde}
+    # HATIRLATMA / GOREV / LISTE
+    global HATIRLATMALAR
+    degisti=False
+    while "[HATIRLAT:" in tam:
+        try:
+            b=tam.index("[HATIRLAT:"); e=tam.index("]",b); ic=tam[b+10:e]
+            tam=(tam[:b]+tam[e+1:]).strip()
+            if "|" in ic:
+                z,m=ic.split("|",1); HATIRLATMALAR.append({"zaman":z.strip(),"metin":m.strip(),"bitti":False,"soylendi":False}); degisti=True
+        except: break
+    while "[GOREV:" in tam:
+        try:
+            b=tam.index("[GOREV:"); e=tam.index("]",b); m=tam[b+7:e].strip()
+            tam=(tam[:b]+tam[e+1:]).strip()
+            if m: HATIRLATMALAR.append({"zaman":"","metin":m,"bitti":False,"soylendi":True}); degisti=True
+        except: break
+    if degisti: hatirlatma_kaydet(HATIRLATMALAR)
+    if "[LISTE]" in tam:
+        tam=tam.replace("[LISTE]","").strip(); liste_panele()
+    while "[SITE:" in tam:
+        try:
+            b=tam.index("[SITE:"); e=tam.index("]",b); url=tam[b+6:e].strip()
+            tam=(tam[:b]+tam[e+1:]).strip()
+            if url: site_ac(url)
+        except: break
+    if muzik_k is not None:
+        if muzik_k.upper()=="DUR": muzik_durdur()
+        else:
+            ad=muzik_cal(muzik_k)
+            if ad: tam=(tam+" Caliyorum: "+ad).strip()
+    if sahne is not None: DURUM["sahne"]=sahne
+    if tema in ("light","dark"): DURUM["tema"]=tema
+    DURUM["duygu"]=duygu
+    print("BILGE ["+duygu+"] (sahne="+str(sahne)+" tema="+str(tema)+"):", tam)
+    if tam: konus(tam)
+
+def web_dinle(gecmis):
+    while True:
+        mesaj=_gelen.get()
+        with _kilit:
+            print("Sen (ekran):", mesaj)
+            dusun_cevapla(mesaj, gecmis)
+            if len(gecmis)>20: gecmis[:]=gecmis[-20:]
+
+def site_ac(url):
+    url=url.strip()
+    if not url.startswith("http"): url="https://"+url
+    ortam=dict(os.environ); ortam["DISPLAY"]=":0"
+    for komut in (["chromium","--new-window",url],["chromium-browser","--new-window",url],["xdg-open",url]):
+        try: subprocess.Popen(komut,env=ortam,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL); return True
+        except: continue
+    return False
+
+def hatirlatma_kontrol():
+    while True:
+        time.sleep(30)
+        simdi=datetime.now().strftime("%Y-%m-%d %H:%M")
+        for h in HATIRLATMALAR:
+            if h.get("bitti") or h.get("soylendi"): continue
+            z=h.get("zaman","")
+            if z and z<=simdi:
+                h["soylendi"]=True; hatirlatma_kaydet(HATIRLATMALAR)
+                with _kilit:
+                    DURUM["panel"]={"baslik":"Hatirlatma","icerik":"- "+h["metin"]}
+                    konus("Ilhan, hatirlatmam var: "+h["metin"])
+
+def klavye_dongusu():
+    print("BILGE hazir. Cikis: q")
+    konus("Merhaba Ilhan, ben Bilge. Buyur, dinliyorum.")
+    gecmis=[]
+    threading.Thread(target=web_dinle,args=(gecmis,),daemon=True).start()
+    threading.Thread(target=hatirlatma_kontrol,daemon=True).start()
+    while True:
+        soru=input("Sen: ")
+        if soru=="q": break
+        with _kilit:
+            dusun_cevapla(soru, gecmis)
+            if len(gecmis)>20: gecmis[:]=gecmis[-20:]
+
+def mikrofon_dongusu():
+    import numpy as np, sounddevice as sd
+    from faster_whisper import WhisperModel
+    print("Whisper yukleniyor..."); model=WhisperModel("small",device="cpu",compute_type="int8")
+    SR=16000; ESIK=0.015; SESSIZLIK=1.0; gecmis=[]; konus("Merhaba Ilhan, seni dinliyorum.")
+    threading.Thread(target=web_dinle,args=(gecmis,),daemon=True).start()
+    q=[]
+    def cb(i,f,t,s): q.append(i.copy())
+    with sd.InputStream(samplerate=SR,channels=1,dtype="float32",blocksize=int(SR*0.1),callback=cb):
+        while True:
+            while True:
+                if q:
+                    bl=q.pop(0)
+                    if float(np.sqrt(np.mean(bl**2)))>ESIK: sustur(); frames=[bl]; break
+                else: time.sleep(0.02)
+            sz=0
+            while sz<int(SESSIZLIK/0.1):
+                if q:
+                    b=q.pop(0); frames.append(b)
+                    sz=sz+1 if float(np.sqrt(np.mean(b**2)))<ESIK else 0
+                else: time.sleep(0.02)
+            DURUM["d"]="dusunuyor"; audio=np.concatenate(frames,axis=0)[:,0]
+            segs,_=model.transcribe(audio,language="tr",beam_size=1)
+            soru=" ".join(x.text.strip() for x in segs).strip()
+            if len(soru)<2: DURUM["d"]="hazir"; continue
+            with _kilit:
+                print("Sen:", soru); dusun_cevapla(soru, gecmis)
+                if len(gecmis)>20: gecmis[:]=gecmis[-20:]
+
+if MIKROFON: mikrofon_dongusu()
+else: klavye_dongusu()
