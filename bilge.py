@@ -1,5 +1,8 @@
-import anthropic, subprocess, threading, http.server, socketserver, json, time, re, queue, os
+import anthropic, subprocess, threading, http.server, socketserver, json, time, re, queue, os, sys, signal
 from datetime import datetime
+
+REPO="https://raw.githubusercontent.com/sermenkreatif/bilge/main"
+DOSYALAR=["bilge_arayuz.html","bilge.py","bilge_sistem.txt","bilge_bilgi.txt"]
 
 MIKROFON = False
 DURUM = {"d":"hazir","duygu":"sakin","muzik":False,"muzik_ad":"","sahne":"yok","tema":"light","soz":"","panel":None}
@@ -55,6 +58,8 @@ def liste_panele():
 client = anthropic.Anthropic()
 ARAC = [{"type":"web_search_20250305","name":"web_search","max_uses":5}]
 SISTEM = open("/home/ilhan/bilge_sistem.txt", encoding="utf-8").read()
+try: SISTEM += "\n\n" + open("/home/ilhan/bilge_bilgi.txt", encoding="utf-8").read()
+except: pass
 SES = "tr-TR-EmelNeural"
 
 _muzik={"p":None}
@@ -72,14 +77,50 @@ def muzik_cal(arama):
         baslik=baslik_temizle(cikti[0] if len(cikti)>=2 else arama)
         link=cikti[-1]
         if link.startswith("http"):
-            _muzik["p"]=subprocess.Popen(["mpv","--no-video","--ao=alsa","--audio-device=alsa/plughw:1,0",link],
-                        stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+            _muzik["p"]=subprocess.Popen(["mpv","--no-terminal","--no-video","--ao=alsa","--audio-device=alsa/plughw:1,0",link],
+                        stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
             DURUM["muzik"]=True; DURUM["muzik_ad"]=baslik; return baslik
     except: pass
     return None
 def muzik_durdur():
     if _muzik["p"] and _muzik["p"].poll() is None: _muzik["p"].terminate()
     _muzik["p"]=None; DURUM["muzik"]=False; DURUM["muzik_ad"]=""
+def muzik_duraklat():
+    if _muzik["p"] and _muzik["p"].poll() is None:
+        try: os.kill(_muzik["p"].pid, signal.SIGSTOP); DURUM["muzik"]=False
+        except: pass
+def muzik_devam():
+    if _muzik["p"] and _muzik["p"].poll() is None:
+        try: os.kill(_muzik["p"].pid, signal.SIGCONT); DURUM["muzik"]=True
+        except: pass
+
+def kendini_guncelle():
+    ok=True
+    for f in DOSYALAR:
+        try:
+            subprocess.run(["wget","-q","-O","/home/ilhan/"+f,REPO+"/"+f],timeout=60,check=True)
+        except: ok=False
+    return ok
+
+# --- Ses seviyesi kontrolu (hem BILGE sesi hem muzik ayni hoparlorden) ---
+_ses={"seviye":80}
+def _amixer(yuzde):
+    for kart in ["-c","1"],[]:
+        for kon in ["Master","PCM","Speaker","Headphone","DAC"]:
+            try:
+                subprocess.run(["amixer"]+kart+["sset",kon,str(yuzde)+"%"],
+                    stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,timeout=5)
+            except: pass
+def ses_ayarla(komut):
+    k=str(komut).strip().upper()
+    s=_ses["seviye"]
+    if k=="SUS": s=0
+    elif k=="KIS": s=max(0,s-25)
+    elif k in ("AC","AÇ","YUKSELT","YÜKSELT"): s=min(100,s+25)
+    else:
+        try: s=max(0,min(100,int(re.sub(r'[^0-9]','',k))))
+        except: return None
+    _ses["seviye"]=s; _amixer(s); return s
 
 # --- Sese giden metni insanlastir: markdown/baslik/liste isaretlerini temizle ---
 def ses_metni(m):
@@ -123,8 +164,8 @@ def dusun_cevapla(soru, gecmis):
         if y.stop_reason=="pause_turn": continue
         break
     tam="".join(b.text for b in y.content if b.type=="text").strip()
-    duygu="sakin"; sahne=None; tema=None; muzik_k=None
-    for anahtar in ["DUYGU","SAHNE","TEMA","MUZIK"]:
+    duygu="sakin"; sahne=None; tema=None; muzik_k=None; ses_k=None
+    for anahtar in ["DUYGU","SAHNE","TEMA","MUZIK","SES","VOL","VOLUME","SOUND"]:
         while "["+anahtar+":" in tam:
             try:
                 bas=tam.index("["+anahtar+":"); son=tam.index("]",bas)
@@ -134,6 +175,7 @@ def dusun_cevapla(soru, gecmis):
                 elif anahtar=="SAHNE": sahne=deger
                 elif anahtar=="TEMA": tema=deger
                 elif anahtar=="MUZIK": muzik_k=deger
+                else: ses_k=deger
             except: break
     # PANEL: ekranda gosterilecek liste/detay blogu (seslendirilmez)
     if "[PANEL:KAPAT]" in tam:
@@ -164,20 +206,35 @@ def dusun_cevapla(soru, gecmis):
     if degisti: hatirlatma_kaydet(HATIRLATMALAR)
     if "[LISTE]" in tam:
         tam=tam.replace("[LISTE]","").strip(); liste_panele()
+    if "[KAPAT]" in tam:
+        tam=tam.replace("[KAPAT]","").strip(); site_kapat(); DURUM["panel"]=None
     while "[SITE:" in tam:
         try:
             b=tam.index("[SITE:"); e=tam.index("]",b); url=tam[b+6:e].strip()
             tam=(tam[:b]+tam[e+1:]).strip()
             if url: site_ac(url)
         except: break
+    if ses_k is not None: ses_ayarla(ses_k)
     if muzik_k is not None:
-        if muzik_k.upper()=="DUR": muzik_durdur()
+        u=muzik_k.upper()
+        if u=="DUR": muzik_durdur()
+        elif u in ("DURAKLAT","BEKLET","PAUSE"): muzik_duraklat()
+        elif u in ("DEVAM","SURDUR","RESUME"): muzik_devam()
         else:
             ad=muzik_cal(muzik_k)
             if ad: tam=(tam+" Caliyorum: "+ad).strip()
+    if "[GUNCELLE]" in tam:
+        tam=tam.replace("[GUNCELLE]","").strip()
+        DURUM["duygu"]=duygu
+        konus("Kendimi guncelliyorum, birazdan yeni halimle donerim.")
+        kendini_guncelle()
+        DURUM["reload"]=True; time.sleep(1)
+        os.execv(sys.executable,[sys.executable]+sys.argv)
     if sahne is not None: DURUM["sahne"]=sahne
     if tema in ("light","dark"): DURUM["tema"]=tema
     DURUM["duygu"]=duygu
+    tam=re.sub(r'\[[A-Za-zÇĞİÖŞÜçğıöşü]+(?::[^\]]*)?\]','',tam).strip()
+    tam=re.sub(r'\s{2,}',' ',tam).strip()
     print("BILGE ["+duygu+"] (sahne="+str(sahne)+" tema="+str(tema)+"):", tam)
     if tam: konus(tam)
 
@@ -189,14 +246,26 @@ def web_dinle(gecmis):
             dusun_cevapla(mesaj, gecmis)
             if len(gecmis)>20: gecmis[:]=gecmis[-20:]
 
+_site={"p":None}
 def site_ac(url):
     url=url.strip()
     if not url.startswith("http"): url="https://"+url
     ortam=dict(os.environ); ortam["DISPLAY"]=":0"
-    for komut in (["chromium","--new-window",url],["chromium-browser","--new-window",url],["xdg-open",url]):
-        try: subprocess.Popen(komut,env=ortam,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL); return True
+    site_kapat()
+    for komut in (["chromium","--user-data-dir=/tmp/bilge_site","--new-window","--start-fullscreen",url],
+                  ["chromium-browser","--user-data-dir=/tmp/bilge_site","--new-window","--start-fullscreen",url],
+                  ["xdg-open",url]):
+        try:
+            _site["p"]=subprocess.Popen(komut,env=ortam,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL); return True
         except: continue
     return False
+def site_kapat():
+    if _site["p"] and _site["p"].poll() is None:
+        try: _site["p"].terminate()
+        except: pass
+    _site["p"]=None
+    try: subprocess.run(["pkill","-f","bilge_site"],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,timeout=5)
+    except: pass
 
 def hatirlatma_kontrol():
     while True:
