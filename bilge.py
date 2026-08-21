@@ -1,5 +1,5 @@
 import anthropic, subprocess, threading, http.server, socketserver, json, time, re, queue, os, sys, signal
-from datetime import datetime
+from datetime import datetime, timedelta
 
 REPO="https://raw.githubusercontent.com/sermenkreatif/bilge/main"
 DOSYALAR=["bilge_arayuz.html","bilge.py","bilge_sistem.txt","bilge_bilgi.txt"]
@@ -45,6 +45,21 @@ def hatirlatma_kaydet(liste):
         with open(HATIRLATMA_DOSYA,"w",encoding="utf-8") as f: json.dump(liste,f,ensure_ascii=False,indent=2)
     except: pass
 HATIRLATMALAR=hatirlatma_yukle()
+GUN_AD={"pazartesi":0,"pzt":0,"sali":1,"salı":1,"carsamba":2,"çarşamba":2,"crs":2,"persembe":3,"perşembe":3,"prs":3,"cuma":4,"cmrt":5,"cumartesi":5,"pazar":6,"paz":6}
+def sonraki_zaman(saat, tekrar, gun=None):
+    try: sa,dk=[int(x) for x in str(saat).split(":")]
+    except: sa,dk=9,0
+    now=datetime.now(); hedef=now.replace(hour=sa,minute=dk,second=0,microsecond=0)
+    if tekrar=="gunluk":
+        if hedef<=now: hedef+=timedelta(days=1)
+    elif tekrar=="hafta_ici":
+        if hedef<=now: hedef+=timedelta(days=1)
+        while hedef.weekday()>=5: hedef+=timedelta(days=1)
+    elif tekrar=="haftalik":
+        g=gun if gun is not None else 0
+        fark=(g-hedef.weekday())%7; hedef=hedef+timedelta(days=fark)
+        if hedef<=now: hedef+=timedelta(days=7)
+    return hedef.strftime("%Y-%m-%d %H:%M")
 def liste_panele():
     aktif=[h for h in HATIRLATMALAR if not h.get("bitti")]
     if not aktif:
@@ -203,6 +218,21 @@ def dusun_cevapla(soru, gecmis):
             tam=(tam[:b]+tam[e+1:]).strip()
             if m: HATIRLATMALAR.append({"zaman":"","metin":m,"bitti":False,"soylendi":True}); degisti=True
         except: break
+    while "[DUZENLI:" in tam:
+        try:
+            b=tam.index("[DUZENLI:"); e=tam.index("]",b); ic=tam[b+9:e]
+            tam=(tam[:b]+tam[e+1:]).strip()
+            parca=ic.split("|")
+            if len(parca)>=3:
+                tipham=parca[0].strip().lower(); saat=parca[1].strip(); metin="|".join(parca[2:]).strip()
+                gun=None; tip=tipham
+                if tipham.startswith("haftalik"):
+                    tip="haftalik"; tok=tipham.split()
+                    if len(tok)>1: gun=GUN_AD.get(tok[1],0)
+                if tip not in ("gunluk","hafta_ici","haftalik"): tip="gunluk"
+                z=sonraki_zaman(saat,tip,gun)
+                HATIRLATMALAR.append({"zaman":z,"metin":metin,"tekrar":tip,"gun":gun,"saat":saat,"bitti":False,"soylendi":False}); degisti=True
+        except: break
     if degisti: hatirlatma_kaydet(HATIRLATMALAR)
     if "[LISTE]" in tam:
         tam=tam.replace("[LISTE]","").strip(); liste_panele()
@@ -213,6 +243,12 @@ def dusun_cevapla(soru, gecmis):
             b=tam.index("[SITE:"); e=tam.index("]",b); url=tam[b+6:e].strip()
             tam=(tam[:b]+tam[e+1:]).strip()
             if url: site_ac(url)
+        except: break
+    while "[OZETLE:" in tam:
+        try:
+            b=tam.index("[OZETLE:"); e=tam.index("]",b); url=tam[b+8:e].strip()
+            tam=(tam[:b]+tam[e+1:]).strip()
+            if url: site_ozetle(url)
         except: break
     if ses_k is not None: ses_ayarla(ses_k)
     if muzik_k is not None:
@@ -262,6 +298,30 @@ def site_ac(url):
             _site["p"]=subprocess.Popen(komut,env=ortam,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL); return True
         except: continue
     return False
+def site_ozetle(url):
+    try:
+        import urllib.request
+        u=url.strip()
+        if not u.startswith("http"): u="https://"+u
+        req=urllib.request.Request(u,headers={"User-Agent":"Mozilla/5.0"})
+        ham=urllib.request.urlopen(req,timeout=20).read().decode("utf-8","ignore")
+        metin=re.sub(r'(?is)<(script|style|noscript).*?</\1>',' ',ham)
+        metin=re.sub(r'(?s)<[^>]+>',' ',metin)
+        metin=re.sub(r'&[a-z#0-9]+;',' ',metin)
+        metin=re.sub(r'\s+',' ',metin).strip()[:6000]
+        if not metin: raise ValueError("bos")
+        oz=client.messages.create(model="claude-sonnet-4-6",max_tokens=600,
+            system="Sana bir web sayfasindan cikarilmis metin verilecek. TAMAMEN Turkce, kisa ve net ozetle. Cevabini SADECE su formatta ver: ilk satir kisa bir baslik, sonraki satirlar '- ' ile baslayan maddeler (en fazla 8 madde). Baska hicbir sey, hicbir aciklama yazma.",
+            messages=[{"role":"user","content":"Sayfa: "+u+"\n\nMetin:\n"+metin}])
+        cev="".join(b.text for b in oz.content if b.type=="text").strip()
+        sat=[x for x in cev.split("\n") if x.strip()]
+        baslik=sat[0].strip("-#* ").strip() if sat else "Ozet"
+        govde="\n".join(sat[1:]).strip() if len(sat)>1 else cev
+        with _kilit: DURUM["panel"]={"baslik":baslik,"icerik":govde}
+        return baslik
+    except:
+        with _kilit: DURUM["panel"]={"baslik":"Ozet","icerik":"- Sayfaya ulasamadim ya da icerigi okuyamadim."}
+        return None
 def site_kapat():
     if _site["p"] and _site["p"].poll() is None:
         try: _site["p"].terminate()
@@ -278,10 +338,15 @@ def hatirlatma_kontrol():
             if h.get("bitti") or h.get("soylendi"): continue
             z=h.get("zaman","")
             if z and z<=simdi:
-                h["soylendi"]=True; hatirlatma_kaydet(HATIRLATMALAR)
                 with _kilit:
                     DURUM["panel"]={"baslik":"Hatirlatma","icerik":"- "+h["metin"]}
                     konus("Ilhan, hatirlatmam var: "+h["metin"])
+                if h.get("tekrar"):
+                    h["zaman"]=sonraki_zaman(h.get("saat","09:00"),h["tekrar"],h.get("gun"))
+                    h["soylendi"]=False
+                else:
+                    h["soylendi"]=True
+                hatirlatma_kaydet(HATIRLATMALAR)
 
 def klavye_dongusu():
     print("BILGE hazir. Cikis: q")
