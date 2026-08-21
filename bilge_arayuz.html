@@ -262,11 +262,11 @@ function cerceve(col,a){ctx.save();ctx.globalAlpha=a;ctx.strokeStyle=col;ctx.lin
   ctx.restore();}
 
 // ---------- MERKEZ: dunya/gezegen sistemi ----------
-// yorungeler: her biri egik elips + uzerinde donen gezegen
 var yoru=[
-  {R:0.62,tilt:1.16,spd:0.55,dir:1,ph:0.0,gez:5.0,renk:1},
-  {R:0.80,tilt:1.32,spd:-0.40,dir:-1,ph:2.1,gez:4.2,renk:0},
-  {R:1.00,tilt:1.02,spd:0.30,dir:1,ph:4.0,gez:6.2,renk:1}
+  {R:0.52,tilt:1.14,spd:0.62,dir:1,ph:0.0,gez:6.5,renk:1},
+  {R:0.72,tilt:1.34,spd:-0.44,dir:-1,ph:2.1,gez:5.4,renk:0},
+  {R:0.92,tilt:1.02,spd:0.34,dir:1,ph:4.0,gez:8.0,renk:1},
+  {R:1.10,tilt:1.42,spd:-0.26,dir:-1,ph:5.4,gez:5.0,renk:0}
 ];
 var pulse=[],lp=0,radar=0;
 function rotX(p,a){var c=Math.cos(a),s=Math.sin(a);return [p[0],p[1]*c-p[2]*s,p[1]*s+p[2]*c];}
@@ -274,81 +274,82 @@ function rotY(p,a){var c=Math.cos(a),s=Math.sin(a);return [p[0]*c+p[2]*s,p[1],-p
 function merkez(s,ana,beyaz,gen){
   var kir="rgba("+ana[0]+","+ana[1]+","+ana[2]+",";
   var bey="rgba("+beyaz[0]+","+beyaz[1]+","+beyaz[2]+",";
-  var dim=(TEMA==="dark")?"rgba(90,55,60,":"rgba(180,150,152,";
-  var Rc=118*s;
+  var dim=(TEMA==="dark")?"rgba(96,58,63,":"rgba(180,150,152,";
+  var Rc=124*s;
   var amp=(DUR==="konusuyor")?1:(DUR==="dusunuyor")?0.6:0.32;
 
   // --- dis HUD tik halka ---
   ctx.globalAlpha=gen;ctx.strokeStyle=dim+"1)";ctx.lineWidth=1;
-  ctx.beginPath();ctx.arc(cx,cy,152*s,0,7);ctx.stroke();
-  for(var i=0;i<72;i++){var a=i*Math.PI/36,r1=152*s,r2=(i%6===0?164:158)*s;
+  ctx.beginPath();ctx.arc(cx,cy,158*s,0,7);ctx.stroke();
+  for(var i=0;i<72;i++){var a=i*Math.PI/36,r1=158*s,r2=(i%6===0?170:164)*s;
     ctx.beginPath();ctx.moveTo(cx+Math.cos(a)*r1,cy+Math.sin(a)*r1);ctx.lineTo(cx+Math.cos(a)*r2,cy+Math.sin(a)*r2);ctx.stroke();}
   var hiz=(DUR==="dusunuyor")?1.8:(DUR==="konusuyor")?1.1:0.4;
-  ctx.strokeStyle=kir+(0.85*gen)+")";ctx.lineWidth=2.4;
-  for(var k=0;k<3;k++){var b=t*hiz+k*2.09;ctx.beginPath();ctx.arc(cx,cy,143*s,b,b+0.5);ctx.stroke();}
-  ctx.strokeStyle=bey+(0.55*gen)+")";ctx.lineWidth=1.6;
-  for(var k=0;k<3;k++){var b=-t*hiz*0.7+k*2.09;ctx.beginPath();ctx.arc(cx,cy,134*s,b,b+0.42);ctx.stroke();}
+  ctx.strokeStyle=kir+(0.9*gen)+")";ctx.lineWidth=2.6;
+  for(var k=0;k<3;k++){var b=t*hiz+k*2.09;ctx.beginPath();ctx.arc(cx,cy,149*s,b,b+0.5);ctx.stroke();}
+  ctx.strokeStyle=bey+(0.6*gen)+")";ctx.lineWidth=1.6;
+  for(var k=0;k<3;k++){var b=-t*hiz*0.7+k*2.09;ctx.beginPath();ctx.arc(cx,cy,140*s,b,b+0.42);ctx.stroke();}
   // radar
   radar+=0.012*(1+(DUR!=="hazir"?1:0));
-  var rg=ctx.createLinearGradient(cx,cy,cx+Math.cos(radar)*152*s,cy+Math.sin(radar)*152*s);
-  rg.addColorStop(0,kir+"0)");rg.addColorStop(1,kir+(0.28*gen)+")");
+  var rg=ctx.createLinearGradient(cx,cy,cx+Math.cos(radar)*158*s,cy+Math.sin(radar)*158*s);
+  rg.addColorStop(0,kir+"0)");rg.addColorStop(1,kir+(0.30*gen)+")");
   ctx.strokeStyle=rg;ctx.lineWidth=2;
-  ctx.beginPath();ctx.moveTo(cx,cy);ctx.lineTo(cx+Math.cos(radar)*148*s,cy+Math.sin(radar)*148*s);ctx.stroke();
+  ctx.beginPath();ctx.moveTo(cx,cy);ctx.lineTo(cx+Math.cos(radar)*154*s,cy+Math.sin(radar)*154*s);ctx.stroke();
 
   // --- merkez isima (kirmizi haze) ---
-  var hz=ctx.createRadialGradient(cx,cy,2,cx,cy,Rc*0.95);
-  hz.addColorStop(0,kir+(0.20*gen*(0.6+amp*0.4))+")");hz.addColorStop(0.5,kir+(0.06*gen)+")");hz.addColorStop(1,kir+"0)");
-  ctx.fillStyle=hz;ctx.beginPath();ctx.arc(cx,cy,Rc*0.95,0,7);ctx.fill();
+  var hz=ctx.createRadialGradient(cx,cy,2,cx,cy,Rc);
+  hz.addColorStop(0,kir+(0.24*gen*(0.6+amp*0.4))+")");hz.addColorStop(0.5,kir+(0.07*gen)+")");hz.addColorStop(1,kir+"0)");
+  ctx.fillStyle=hz;ctx.beginPath();ctx.arc(cx,cy,Rc,0,7);ctx.fill();
 
-  // === YORUNGELER (arka yari once) ===
-  var sg=t*0.22; // dunya spin
+  // === YORUNGE IZLERI (arka + on) ===
   function gezPozisyon(y){var ang=t*y.spd*y.dir+y.ph;var p=[Math.cos(ang)*Rc*y.R,0,Math.sin(ang)*Rc*y.R];p=rotX(p,y.tilt);return p;}
-  // yorunge izleri
   for(var o=0;o<yoru.length;o++){var y=yoru[o];var rc=(y.renk===1)?ana:beyaz;var cc="rgba("+rc[0]+","+rc[1]+","+rc[2]+",";
-    ctx.lineWidth=1.1;
-    for(var half=0;half<2;half++){ // 0=arka,1=on
+    for(var half=0;half<2;half++){
       ctx.beginPath();var basla=true;
-      for(var a=0;a<=64;a++){var th=a/64*Math.PI*2;var p=[Math.cos(th)*Rc*y.R,0,Math.sin(th)*Rc*y.R];p=rotX(p,y.tilt);
+      for(var a=0;a<=72;a++){var th=a/72*Math.PI*2;var p=[Math.cos(th)*Rc*y.R,0,Math.sin(th)*Rc*y.R];p=rotX(p,y.tilt);
         var on=(p[2]>=0);if(on!==(half===1)){basla=true;continue;}
         var px=cx+p[0],py=cy+p[1];if(basla){ctx.moveTo(px,py);basla=false;}else ctx.lineTo(px,py);}
-      ctx.globalAlpha=gen*(half===1?0.42:0.14);ctx.strokeStyle=cc+"1)";ctx.stroke();
+      ctx.globalAlpha=gen*(half===1?0.72:0.22);ctx.strokeStyle=cc+"1)";ctx.lineWidth=(half===1?1.8:1.2);ctx.stroke();
     }
   }
 
   // --- DUNYA (telkafes kure, dotlu) ---
-  ctx.globalAlpha=1;var Rg=44*s;
-  // paralel (enlem) dotlari
-  for(var la=-60;la<=60;la+=30){var yy=Math.sin(la*Math.PI/180),rr=Math.cos(la*Math.PI/180);
-    for(var lo=0;lo<360;lo+=15){var lr=(lo+0)*Math.PI/180;var p=[rr*Math.cos(lr),yy,rr*Math.sin(lr)];p=rotY(p,sg);
-      var depth=(p[2]+1)/2;var al=gen*(0.12+0.6*depth);var sz=(0.6+1.0*depth)*s;
-      ctx.globalAlpha=al;ctx.fillStyle=bey+"1)";ctx.fillRect(cx+p[0]*Rg-sz/2,cy+p[1]*Rg-sz/2,sz,sz);}}
-  // meridyen (boylam) dotlari
-  for(var lo=0;lo<360;lo+=30){var lr=lo*Math.PI/180;
-    for(var la=-80;la<=80;la+=16){var yy=Math.sin(la*Math.PI/180),rr=Math.cos(la*Math.PI/180);
+  ctx.globalAlpha=1;var Rg=66*s,sg=t*0.22;
+  // paralel (enlem)
+  for(var la=-60;la<=60;la+=20){var yy=Math.sin(la*Math.PI/180),rr=Math.cos(la*Math.PI/180);
+    for(var lo=0;lo<360;lo+=12){var lr=lo*Math.PI/180;var p=[rr*Math.cos(lr),yy,rr*Math.sin(lr)];p=rotY(p,sg);
+      var depth=(p[2]+1)/2;ctx.globalAlpha=gen*(0.16+0.72*depth);ctx.fillStyle=bey+"1)";
+      var sz=(0.9+1.4*depth)*s;ctx.fillRect(cx+p[0]*Rg-sz/2,cy+p[1]*Rg-sz/2,sz,sz);}}
+  // meridyen (boylam)
+  for(var lo=0;lo<360;lo+=24){var lr=lo*Math.PI/180;
+    for(var la=-82;la<=82;la+=11){var yy=Math.sin(la*Math.PI/180),rr=Math.cos(la*Math.PI/180);
       var p=[rr*Math.cos(lr),yy,rr*Math.sin(lr)];p=rotY(p,sg);
-      var depth=(p[2]+1)/2;var al=gen*(0.10+0.55*depth);var sz=(0.6+1.0*depth)*s;
-      ctx.globalAlpha=al;ctx.fillStyle=kir+"1)";ctx.fillRect(cx+p[0]*Rg-sz/2,cy+p[1]*Rg-sz/2,sz,sz);}}
-  // cekirdek parlak nokta
-  ctx.globalAlpha=gen*(0.5+amp*0.4);ctx.fillStyle=bey+"1)";
-  ctx.beginPath();ctx.arc(cx,cy,2.4*s+Math.sin(t*3)*1*s,0,7);ctx.fill();
-  var cg=ctx.createRadialGradient(cx,cy,1,cx,cy,Rg*0.7);
-  cg.addColorStop(0,kir+(0.5*gen)+")");cg.addColorStop(1,kir+"0)");
-  ctx.fillStyle=cg;ctx.beginPath();ctx.arc(cx,cy,Rg*0.7,0,7);ctx.fill();
+      var depth=(p[2]+1)/2;ctx.globalAlpha=gen*(0.14+0.66*depth);ctx.fillStyle=kir+"1)";
+      var sz=(0.9+1.3*depth)*s;ctx.fillRect(cx+p[0]*Rg-sz/2,cy+p[1]*Rg-sz/2,sz,sz);}}
+  // ekvator parlak halka
+  ctx.globalAlpha=gen*0.5;ctx.strokeStyle=kir+"1)";ctx.lineWidth=1.4;
+  ctx.beginPath();ctx.ellipse(cx,cy,Rg,Rg*0.32,0,0,7);ctx.stroke();
+  // cekirdek glow + nokta
+  var cg=ctx.createRadialGradient(cx,cy,1,cx,cy,Rg*0.85);
+  cg.addColorStop(0,kir+(0.55*gen)+")");cg.addColorStop(1,kir+"0)");
+  ctx.globalAlpha=1;ctx.fillStyle=cg;ctx.beginPath();ctx.arc(cx,cy,Rg*0.85,0,7);ctx.fill();
+  ctx.globalAlpha=gen*(0.6+amp*0.4);ctx.fillStyle=bey+"1)";
+  ctx.beginPath();ctx.arc(cx,cy,3*s+Math.sin(t*3)*1.2*s,0,7);ctx.fill();
 
-  // === GEZEGENLER (yorunge uzerinde) ===
+  // === GEZEGENLER ===
   for(var o=0;o<yoru.length;o++){var y=yoru[o];var p=gezPozisyon(y);var rc=(y.renk===1)?ana:beyaz;var cc="rgba("+rc[0]+","+rc[1]+","+rc[2]+",";
-    var depth=(p[2]+1)/2;var gr2=(y.gez*(0.6+0.7*depth))*s;var al=gen*(0.4+0.6*depth);
+    var depth=(p[2]/(Rc*y.R)+1)/2;if(depth<0)depth=0;if(depth>1)depth=1;
+    var gr2=Math.max(1,(y.gez*(0.55+0.75*depth))*s);var al=Math.max(0,Math.min(1,gen*(0.4+0.6*depth)));
     var px=cx+p[0],py=cy+p[1];
-    var pg=ctx.createRadialGradient(px,py,0.5,px,py,gr2*2.4);
-    pg.addColorStop(0,cc+(al)+")");pg.addColorStop(0.5,cc+(al*0.35)+")");pg.addColorStop(1,cc+"0)");
-    ctx.globalAlpha=1;ctx.fillStyle=pg;ctx.beginPath();ctx.arc(px,py,gr2*2.4,0,7);ctx.fill();
+    var pg=ctx.createRadialGradient(px,py,0.5,px,py,gr2*2.6);
+    pg.addColorStop(0,cc+al+")");pg.addColorStop(0.5,cc+(al*0.35)+")");pg.addColorStop(1,cc+"0)");
+    ctx.globalAlpha=1;ctx.fillStyle=pg;ctx.beginPath();ctx.arc(px,py,gr2*2.6,0,7);ctx.fill();
     ctx.fillStyle=cc+al+")";ctx.beginPath();ctx.arc(px,py,gr2,0,7);ctx.fill();
-    ctx.fillStyle=bey+(al*0.9)+")";ctx.beginPath();ctx.arc(px-gr2*0.3,py-gr2*0.3,gr2*0.35,0,7);ctx.fill();
+    ctx.fillStyle=bey+(al*0.9)+")";ctx.beginPath();ctx.arc(px-gr2*0.3,py-gr2*0.3,gr2*0.34,0,7);ctx.fill();
   }
 
-  // pulse halkalari
+  // pulse
   var ph2=(DUR==="konusuyor")?2.2:(DUR==="dusunuyor")?1.6:1;
-  if(t-lp>1.5/ph2){pulse.push({r:Rg*1.05,a:.24});lp=t;}
+  if(t-lp>1.5/ph2){pulse.push({r:Rg*1.02,a:.22});lp=t;}
   for(var p2=pulse.length-1;p2>=0;p2--){var pl=pulse[p2];pl.r+=1.0*ph2*s;pl.a*=.972;
     if(pl.a<.015){pulse.splice(p2,1);continue;}
     ctx.globalAlpha=gen*pl.a;ctx.strokeStyle=kir+"1)";ctx.lineWidth=1.4;
@@ -378,7 +379,8 @@ function ambientAyarla(tip){
 }
 
 var t=0,mmix=0,sahneSon=0;
-function draw(){
+function draw(){try{cizKare();}catch(e){}requestAnimationFrame(draw);}
+function cizKare(){
   var hedefMix=MUZIK?1:0;mmix+=(hedefMix-mmix)*0.06;
   t+=0.016*(1+mmix*0.6);
   ctx.clearRect(0,0,W,H);
@@ -398,7 +400,6 @@ function draw(){
     gg.addColorStop(0,"rgba("+ana[0]+","+ana[1]+","+ana[2]+",0.14)");gg.addColorStop(1,"rgba("+ana[0]+","+ana[1]+","+ana[2]+",0)");
     ctx.fillStyle=gg;ctx.fillRect(0,0,W,H);ctx.globalAlpha=1;djCiz(mmix,ana);}
   var altEl=document.getElementById("alt");altEl.style.opacity=(1-sahneA*0.5)*(1-mmix*0.35);
-  requestAnimationFrame(draw);
 }
 draw();
 </script>
