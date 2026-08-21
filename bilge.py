@@ -5,7 +5,7 @@ REPO="https://raw.githubusercontent.com/sermenkreatif/bilge/main"
 DOSYALAR=["bilge_arayuz.html","bilge.py","bilge_sistem.txt","bilge_bilgi.txt"]
 
 MIKROFON = False
-DURUM = {"d":"hazir","duygu":"sakin","muzik":False,"muzik_ad":"","sahne":"yok","tema":"light","soz":"","panel":None}
+DURUM = {"d":"hazir","duygu":"sakin","muzik":False,"muzik_ad":"","sahne":"yok","tema":"light","soz":"","panel":None,"video":None}
 _gelen = queue.Queue()
 _kilit = threading.Lock()
 
@@ -26,6 +26,7 @@ class H(http.server.BaseHTTPRequestHandler):
         try:
             d=json.loads(veri); mesaj=d.get("mesaj","").strip()
             if d.get("panel_kapat"): DURUM["panel"]=None
+            if d.get("video_kapat"): DURUM["video"]=None
         except: mesaj=""
         if mesaj: _gelen.put(mesaj)
         s.send_response(200); s.send_header("Content-Type","application/json"); s._cors(); s.end_headers()
@@ -86,16 +87,18 @@ def baslik_temizle(b):
 
 def muzik_cal(arama):
     muzik_durdur()
-    try:
-        cikti=subprocess.check_output(["yt-dlp","-f","bestaudio","-g","--get-title","ytsearch1:"+arama],
-              stderr=subprocess.DEVNULL,timeout=45).decode().strip().split("\n")
-        baslik=baslik_temizle(cikti[0] if len(cikti)>=2 else arama)
-        link=cikti[-1]
-        if link.startswith("http"):
-            _muzik["p"]=subprocess.Popen(["mpv","--no-terminal","--no-video","--ao=alsa","--audio-device=alsa/plughw:1,0",link],
-                        stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
-            DURUM["muzik"]=True; DURUM["muzik_ad"]=baslik; return baslik
-    except: pass
+    def _iste():
+        try:
+            cikti=subprocess.check_output(["yt-dlp","-f","bestaudio","-g","--get-title","ytsearch1:"+arama],
+                  stderr=subprocess.DEVNULL,timeout=45).decode().strip().split("\n")
+            baslik=baslik_temizle(cikti[0] if len(cikti)>=2 else arama)
+            link=cikti[-1]
+            if link.startswith("http"):
+                _muzik["p"]=subprocess.Popen(["mpv","--no-terminal","--no-video","--ao=alsa","--audio-device=alsa/plughw:1,0",link],
+                            stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+                DURUM["muzik"]=True; DURUM["muzik_ad"]=baslik
+        except: pass
+    threading.Thread(target=_iste,daemon=True).start()
     return None
 def muzik_durdur():
     if _muzik["p"] and _muzik["p"].poll() is None: _muzik["p"].terminate()
@@ -108,6 +111,19 @@ def muzik_devam():
     if _muzik["p"] and _muzik["p"].poll() is None:
         try: os.kill(_muzik["p"].pid, signal.SIGCONT); DURUM["muzik"]=True
         except: pass
+
+def video_bul(arama):
+    muzik_durdur()
+    def _iste():
+        try:
+            cikti=subprocess.check_output(["yt-dlp","--get-title","--get-id","ytsearch1:"+arama],
+                  stderr=subprocess.DEVNULL,timeout=45).decode().strip().split("\n")
+            if len(cikti)>=2:
+                baslik=baslik_temizle(cikti[0]); vid=cikti[-1].strip()
+                if vid: DURUM["video"]={"id":vid,"ad":baslik}
+        except: pass
+    threading.Thread(target=_iste,daemon=True).start()
+    return None
 
 def kendini_guncelle():
     ok=True
@@ -237,7 +253,14 @@ def dusun_cevapla(soru, gecmis):
     if "[LISTE]" in tam:
         tam=tam.replace("[LISTE]","").strip(); liste_panele()
     if "[KAPAT]" in tam:
-        tam=tam.replace("[KAPAT]","").strip(); site_kapat(); DURUM["panel"]=None
+        tam=tam.replace("[KAPAT]","").strip(); site_kapat(); DURUM["panel"]=None; DURUM["video"]=None
+    while "[VIDEO:" in tam:
+        try:
+            b=tam.index("[VIDEO:"); e=tam.index("]",b); arg=tam[b+7:e].strip()
+            tam=(tam[:b]+tam[e+1:]).strip()
+            if arg.upper()=="KAPAT": DURUM["video"]=None
+            elif arg: video_bul(arg)
+        except: break
     while "[SITE:" in tam:
         try:
             b=tam.index("[SITE:"); e=tam.index("]",b); url=tam[b+6:e].strip()
@@ -299,29 +322,30 @@ def site_ac(url):
         except: continue
     return False
 def site_ozetle(url):
-    try:
-        import urllib.request
-        u=url.strip()
-        if not u.startswith("http"): u="https://"+u
-        req=urllib.request.Request(u,headers={"User-Agent":"Mozilla/5.0"})
-        ham=urllib.request.urlopen(req,timeout=20).read().decode("utf-8","ignore")
-        metin=re.sub(r'(?is)<(script|style|noscript).*?</\1>',' ',ham)
-        metin=re.sub(r'(?s)<[^>]+>',' ',metin)
-        metin=re.sub(r'&[a-z#0-9]+;',' ',metin)
-        metin=re.sub(r'\s+',' ',metin).strip()[:6000]
-        if not metin: raise ValueError("bos")
-        oz=client.messages.create(model="claude-sonnet-4-6",max_tokens=600,
-            system="Sana bir web sayfasindan cikarilmis metin verilecek. TAMAMEN Turkce, kisa ve net ozetle. Cevabini SADECE su formatta ver: ilk satir kisa bir baslik, sonraki satirlar '- ' ile baslayan maddeler (en fazla 8 madde). Baska hicbir sey, hicbir aciklama yazma.",
-            messages=[{"role":"user","content":"Sayfa: "+u+"\n\nMetin:\n"+metin}])
-        cev="".join(b.text for b in oz.content if b.type=="text").strip()
-        sat=[x for x in cev.split("\n") if x.strip()]
-        baslik=sat[0].strip("-#* ").strip() if sat else "Ozet"
-        govde="\n".join(sat[1:]).strip() if len(sat)>1 else cev
-        with _kilit: DURUM["panel"]={"baslik":baslik,"icerik":govde}
-        return baslik
-    except:
-        with _kilit: DURUM["panel"]={"baslik":"Ozet","icerik":"- Sayfaya ulasamadim ya da icerigi okuyamadim."}
-        return None
+    def _iste():
+        try:
+            import urllib.request
+            u=url.strip()
+            if not u.startswith("http"): u="https://"+u
+            req=urllib.request.Request(u,headers={"User-Agent":"Mozilla/5.0"})
+            ham=urllib.request.urlopen(req,timeout=20).read().decode("utf-8","ignore")
+            metin=re.sub(r'(?is)<(script|style|noscript).*?</\1>',' ',ham)
+            metin=re.sub(r'(?s)<[^>]+>',' ',metin)
+            metin=re.sub(r'&[a-z#0-9]+;',' ',metin)
+            metin=re.sub(r'\s+',' ',metin).strip()[:6000]
+            if not metin: raise ValueError("bos")
+            oz=client.messages.create(model="claude-sonnet-4-6",max_tokens=600,
+                system="Sana bir web sayfasindan cikarilmis metin verilecek. TAMAMEN Turkce, kisa ve net ozetle. Cevabini SADECE su formatta ver: ilk satir kisa bir baslik, sonraki satirlar '- ' ile baslayan maddeler (en fazla 8 madde). Baska hicbir sey, hicbir aciklama yazma.",
+                messages=[{"role":"user","content":"Sayfa: "+u+"\n\nMetin:\n"+metin}])
+            cev="".join(b.text for b in oz.content if b.type=="text").strip()
+            sat=[x for x in cev.split("\n") if x.strip()]
+            baslik=sat[0].strip("-#* ").strip() if sat else "Ozet"
+            govde="\n".join(sat[1:]).strip() if len(sat)>1 else cev
+            with _kilit: DURUM["panel"]={"baslik":baslik,"icerik":govde}
+        except:
+            with _kilit: DURUM["panel"]={"baslik":"Ozet","icerik":"- Sayfaya ulasamadim ya da icerigi okuyamadim."}
+    threading.Thread(target=_iste,daemon=True).start()
+    return None
 def site_kapat():
     if _site["p"] and _site["p"].poll() is None:
         try: _site["p"].terminate()
