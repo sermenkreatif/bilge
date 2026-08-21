@@ -237,6 +237,9 @@ def dusun_cevapla(soru, gecmis):
     tam=re.sub(r'\s{2,}',' ',tam).strip()
     print("BILGE ["+duygu+"] (sahne="+str(sahne)+" tema="+str(tema)+"):", tam)
     if tam: konus(tam)
+    # hava/atmosfer sahnesi SADECE o cevap icin gosterilir; konusma bitince kisa sure sonra kaybolur
+    if sahne and sahne != "yok":
+        threading.Timer(2.5, lambda: DURUM.__setitem__("sahne", "yok")).start()
 
 def web_dinle(gecmis):
     while True:
