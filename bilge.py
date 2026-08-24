@@ -117,7 +117,7 @@ def muzik_cal(arama):
             baslik=baslik_temizle(next((x for x in cikti if not x.startswith("http")),arama))
             if link:
                 logf=open("/tmp/mpv.log","w")
-                _muzik["p"]=subprocess.Popen(["mpv","--no-terminal","--no-video",link],
+                _muzik["p"]=subprocess.Popen(["mpv","--no-terminal","--no-video","--audio-device=alsa/plughw:1,0",link],
                             stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=logf)
                 DURUM["muzik"]=True; DURUM["muzik_ad"]=baslik; print("MUZIK caliyor:",baslik)
             else:
