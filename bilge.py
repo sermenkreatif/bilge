@@ -210,12 +210,19 @@ def konus(metin):
     DURUM["d"]="konusuyor"
     try:
         import edge_tts, asyncio
-        async def _u(): await edge_tts.Communicate(metin, SES).save("/tmp/b.mp3")
-        asyncio.run(_u())
+        # asyncio.run() yan thread'lerde (sohbet kutusu/hatirlatma) cokuyor;
+        # her thread'de calisan yeni event loop kullan
+        dongu=asyncio.new_event_loop()
+        try:
+            dongu.run_until_complete(edge_tts.Communicate(metin, SES).save("/tmp/b.mp3"))
+        finally:
+            dongu.close()
         pr=subprocess.Popen(["ffplay","-nodisp","-autoexit","-loglevel","quiet","/tmp/b.mp3"])
         _calan["p"]=pr; pr.wait()
     except Exception as e:
-        print("SES hata:", e)
+        print("SES hata:", repr(e))
+        try: log("SES hata:", repr(e))
+        except Exception: pass
     finally:
         _calan["p"]=None; DURUM["d"]="hazir"
 def sustur():
