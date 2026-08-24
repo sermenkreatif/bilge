@@ -122,10 +122,16 @@
   body.dark #introSub{color:#FF3B47;} body.light #introSub{color:#C1121F;}
   @keyframes up{to{opacity:1;transform:translateY(0);}}
   @keyframes fade{to{opacity:1;}}
+#uyari{position:fixed;top:0;left:0;right:0;z-index:50;display:none;
+  background:linear-gradient(90deg,rgba(227,10,23,.92),rgba(150,6,14,.92));
+  color:#fff;font:600 14px system-ui,sans-serif;letter-spacing:.5px;
+  text-align:center;padding:7px 12px;box-shadow:0 2px 14px rgba(227,10,23,.5);
+  text-shadow:0 1px 2px rgba(0,0,0,.4)}
 </style>
 </head>
 <body class="dark">
 <canvas id="cv"></canvas>
+<div id="uyari"></div>
 
 <div id="saatkutu">
   <div id="clk">--:--</div>
@@ -258,6 +264,8 @@ function poll(){fetch("http://127.0.0.1:8137").then(function(r){return r.json();
   CANLI=true;if(j.reload){location.reload();return;}
   DUR=j.d;MUZIK=!!j.muzik;MUZAD=j.muzik_ad||"";SAHNE=(j.sahne===undefined||j.sahne===null)?SAHNE:j.sahne;
   if(j.tema)setTema(j.tema);panelGoster(j.panel);videoGoster(j.video);ekranYaz();
+  var uy=document.getElementById("uyari");
+  if(j.uyari){uy.textContent="\u26A0 "+j.uyari;uy.style.display="block";}else{uy.style.display="none";}
 }).catch(function(e){demoSur();});}
 setInterval(poll,300);
 
@@ -422,10 +430,19 @@ function ambientAyarla(tip){
 
 var t=0,mmix=0,sahneSon=0;
 var _sonKare=0;
-function draw(ts){requestAnimationFrame(draw);if(ts&&ts-_sonKare<31)return;_sonKare=ts||0;try{cizKare();}catch(e){}}
+function draw(ts){
+  requestAnimationFrame(draw);
+  // bosta (hazir + muzik yok + sahne yok): ~7fps ile serin; konusma/muzik/sahne varken 30fps
+  var aktif=(DUR!=="hazir")||MUZIK||(SAHNE&&SAHNE!=="yok");
+  var esik=aktif?31:140;
+  if(ts&&ts-_sonKare<esik)return;
+  _sonKare=ts||0;
+  try{cizKare();}catch(e){}
+}
 function cizKare(){
   var hedefMix=MUZIK?1:0;mmix+=(hedefMix-mmix)*0.06;
-  t+=0.03*(1+mmix*0.4);
+  var _aktif=(DUR!=="hazir")||MUZIK||(SAHNE&&SAHNE!=="yok");
+  t+=(_aktif?0.03:0.010)*(1+mmix*0.4);
   ctx.clearRect(0,0,W,H);
   var s=SC;
   var ana=(TEMA==="dark")?[227,10,23]:[193,18,31];
