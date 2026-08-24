@@ -1,4 +1,4 @@
-import anthropic, subprocess, threading, http.server, socketserver, json, time, re, queue, os, sys, signal
+import anthropic, subprocess, threading, http.server, socketserver, json, time, re, queue, os, sys, signal, atexit
 from datetime import datetime, timedelta
 
 # Terminal locale UTF-8 olmasa bile Turkce karakter (u,i,s,c,g,o) input()'ta cokmesin
@@ -8,11 +8,20 @@ try:
 except Exception:
     pass
 
+import traceback
+LOG_YOL="/home/ilhan/bilge.log"
+def log(*a):
+    satir="["+datetime.now().strftime("%H:%M:%S")+"] "+" ".join(str(x) for x in a)
+    try:
+        with open(LOG_YOL,"a",encoding="utf-8") as f: f.write(satir+"\n")
+    except Exception: pass
+    print(satir)
+
 REPO="https://raw.githubusercontent.com/sermenkreatif/bilge/main"
 DOSYALAR=["bilge_arayuz.html","bilge.py","bilge_sistem.txt","bilge_bilgi.txt"]
 
 MIKROFON = False
-DURUM = {"d":"hazir","muzik":False,"muzik_ad":"","sahne":"yok","tema":"light","panel":None,"video":None}
+DURUM = {"d":"hazir","muzik":False,"muzik_ad":"","sahne":"yok","tema":"light","panel":None,"video":None,"uyari":""}
 _gelen = queue.Queue()
 _kilit = threading.Lock()
 
@@ -26,10 +35,10 @@ class H(http.server.BaseHTTPRequestHandler):
         s.send_response(200); s._cors(); s.end_headers()
     def do_GET(s):
         s.send_response(200); s.send_header("Content-Type","application/json"); s._cors(); s.end_headers()
-        s.wfile.write(json.dumps(DURUM).encode())
+        s.wfile.write(json.dumps(dict(DURUM)).encode())
     def do_POST(s):
         n=int(s.headers.get("Content-Length",0))
-        veri=s.rfile.read(n).decode("utf-8") if n else ""
+        veri=s.rfile.read(n).decode("utf-8","ignore") if n else ""
         try:
             d=json.loads(veri); mesaj=d.get("mesaj","").strip()
             if d.get("panel_kapat"): DURUM["panel"]=None
@@ -78,9 +87,14 @@ def liste_panele():
         else: sat.append("- "+h["metin"])
     DURUM["panel"]={"baslik":"Yapilacaklar ve Hatirlatmalar","icerik":"\n".join(sat)}
 
+if not os.environ.get("ANTHROPIC_API_KEY"):
+    print("HATA: ANTHROPIC_API_KEY tanimli degil. ~/.bashrc icine ekleyip 'source ~/.bashrc' calistir."); sys.exit(1)
 client = anthropic.Anthropic()
 ARAC = [{"type":"web_search_20250305","name":"web_search","max_uses":5}]
-SISTEM = open("/home/ilhan/bilge_sistem.txt", encoding="utf-8").read()
+try:
+    SISTEM = open("/home/ilhan/bilge_sistem.txt", encoding="utf-8").read()
+except Exception as e:
+    print("HATA: bilge_sistem.txt okunamadi:", e); sys.exit(1)
 try: SISTEM += "\n\n" + open("/home/ilhan/bilge_bilgi.txt", encoding="utf-8").read()
 except: pass
 SES = "tr-TR-EmelNeural"
@@ -96,15 +110,20 @@ def muzik_cal(arama):
     muzik_durdur()
     def _iste():
         try:
-            cikti=subprocess.check_output(["yt-dlp","-f","bestaudio","-g","--get-title","ytsearch1:"+arama],
-                  stderr=subprocess.DEVNULL,timeout=45).decode().strip().split("\n")
-            baslik=baslik_temizle(cikti[0] if len(cikti)>=2 else arama)
-            link=cikti[-1]
-            if link.startswith("http"):
-                _muzik["p"]=subprocess.Popen(["mpv","--no-terminal","--no-video","--ao=alsa","--audio-device=alsa/plughw:1,0",link],
-                            stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
-                DURUM["muzik"]=True; DURUM["muzik_ad"]=baslik
-        except: pass
+            cikti=subprocess.check_output(["yt-dlp","-f","bestaudio","-g","--print","%(title)s","ytsearch1:"+arama],
+                  stderr=subprocess.DEVNULL,timeout=60).decode("utf-8","ignore").strip().split("\n")
+            cikti=[x for x in cikti if x.strip()]
+            link=next((x for x in cikti if x.startswith("http")),"")
+            baslik=baslik_temizle(next((x for x in cikti if not x.startswith("http")),arama))
+            if link:
+                logf=open("/tmp/mpv.log","w")
+                _muzik["p"]=subprocess.Popen(["mpv","--no-terminal","--no-video",link],
+                            stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=logf)
+                DURUM["muzik"]=True; DURUM["muzik_ad"]=baslik; print("MUZIK caliyor:",baslik)
+            else:
+                print("MUZIK link yok:",repr(cikti))
+        except Exception as e:
+            print("MUZIK hata:",e)
     threading.Thread(target=_iste,daemon=True).start()
     return None
 def muzik_durdur():
@@ -189,25 +208,38 @@ def konus(metin):
     metin=ses_metni(metin)
     if not metin: return
     DURUM["d"]="konusuyor"
-    import edge_tts, asyncio
-    async def _u(): await edge_tts.Communicate(metin, SES).save("/tmp/b.mp3")
-    asyncio.run(_u())
-    p=subprocess.Popen(["ffplay","-nodisp","-autoexit","-loglevel","quiet","/tmp/b.mp3"])
-    _calan["p"]=p; p.wait(); _calan["p"]=None
-    DURUM["d"]="hazir"
+    try:
+        import edge_tts, asyncio
+        async def _u(): await edge_tts.Communicate(metin, SES).save("/tmp/b.mp3")
+        asyncio.run(_u())
+        pr=subprocess.Popen(["ffplay","-nodisp","-autoexit","-loglevel","quiet","/tmp/b.mp3"])
+        _calan["p"]=pr; pr.wait()
+    except Exception as e:
+        print("SES hata:", e)
+    finally:
+        _calan["p"]=None; DURUM["d"]="hazir"
 def sustur():
     if _calan["p"] and _calan["p"].poll() is None: _calan["p"].terminate()
 
 def dusun_cevapla(soru, gecmis):
     DURUM["d"]="dusunuyor"
     gecmis.append({"role":"user","content":soru})
-    while True:
-        y=client.messages.create(model="claude-sonnet-4-6",max_tokens=800,
-            system=SISTEM+" Bugunun tarihi: "+datetime.now().strftime("%d.%m.%Y")+" COK ONEMLI SON HATIRLATMA: Bu cevabin tamami bastan sona Turkce olacak. Tek bir Ingilizce kelime bile kullanma. Ingilizce dusunme, Turkce dusun ve Turkce yaz.",
-            tools=ARAC,messages=gecmis)
-        gecmis.append({"role":"assistant","content":y.content})
-        if y.stop_reason=="pause_turn": continue
-        break
+    try:
+        tur=0
+        while True:
+            y=client.messages.create(model="claude-sonnet-4-6",max_tokens=800,
+                system=SISTEM+" Bugunun tarihi: "+datetime.now().strftime("%d.%m.%Y")+" COK ONEMLI SON HATIRLATMA: Bu cevabin tamami bastan sona Turkce olacak. Tek bir Ingilizce kelime bile kullanma. Ingilizce dusunme, Turkce dusun ve Turkce yaz.",
+                tools=ARAC,messages=gecmis)
+            gecmis.append({"role":"assistant","content":y.content})
+            tur+=1
+            if y.stop_reason=="pause_turn" and tur<6: continue
+            break
+    except Exception as e:
+        print("API hata:", e)
+        if gecmis and gecmis[-1].get("role")=="user": gecmis.pop()
+        DURUM["d"]="hazir"
+        konus("Su an baglantida bir sorun var, birazdan tekrar dener misin?")
+        return
     tam="".join(b.text for b in y.content if b.type=="text").strip()
     sahne=None; tema=None; muzik_k=None; ses_k=None
     for anahtar in ["SAHNE","TEMA","MUZIK","SES","VOL","VOLUME","SOUND"]:
@@ -232,7 +264,6 @@ def dusun_cevapla(soru, gecmis):
         govde="\n".join(sat[1:]).strip() if len(sat)>1 else ""
         DURUM["panel"]={"baslik":baslik,"icerik":govde}
     # HATIRLATMA / GOREV / LISTE
-    global HATIRLATMALAR
     degisti=False
     while "[HATIRLAT:" in tam:
         try:
@@ -311,13 +342,19 @@ def dusun_cevapla(soru, gecmis):
     if sahne and sahne != "yok":
         threading.Timer(2.5, lambda: DURUM.__setitem__("sahne", "yok")).start()
 
+def guvenli_cevapla(soru, gecmis):
+    try:
+        dusun_cevapla(soru, gecmis)
+    except Exception as e:
+        log("CEVAP hata:", e); log(traceback.format_exc()); DURUM["d"]="hazir"
+    if len(gecmis)>20: gecmis[:]=gecmis[-20:]
+
 def web_dinle(gecmis):
     while True:
         mesaj=_gelen.get()
         with _kilit:
             print("Sen (ekran):", mesaj)
-            dusun_cevapla(mesaj, gecmis)
-            if len(gecmis)>20: gecmis[:]=gecmis[-20:]
+            guvenli_cevapla(mesaj, gecmis)
 
 _site={"p":None}
 def site_ac(url):
@@ -365,6 +402,12 @@ def site_kapat():
     try: subprocess.run(["pkill","-f","bilge_site"],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,timeout=5)
     except: pass
 
+def temizle():
+    for fn in (muzik_durdur, sustur, site_kapat):
+        try: fn()
+        except: pass
+atexit.register(temizle)
+
 def hatirlatma_kontrol():
     while True:
         time.sleep(30)
@@ -373,22 +416,51 @@ def hatirlatma_kontrol():
             if h.get("bitti") or h.get("soylendi"): continue
             z=h.get("zaman","")
             if z and z<=simdi:
-                with _kilit:
-                    DURUM["panel"]={"baslik":"Hatirlatma","icerik":"- "+h["metin"]}
-                    konus("Ilhan, hatirlatmam var: "+h["metin"])
-                if h.get("tekrar"):
-                    h["zaman"]=sonraki_zaman(h.get("saat","09:00"),h["tekrar"],h.get("gun"))
-                    h["soylendi"]=False
-                else:
-                    h["soylendi"]=True
-                hatirlatma_kaydet(HATIRLATMALAR)
+                try:
+                    with _kilit:
+                        DURUM["panel"]={"baslik":"Hatirlatma","icerik":"- "+h["metin"]}
+                        konus("Ilhan, hatirlatmam var: "+h["metin"])
+                    if h.get("tekrar"):
+                        h["zaman"]=sonraki_zaman(h.get("saat","09:00"),h["tekrar"],h.get("gun"))
+                        h["soylendi"]=False
+                    else:
+                        h["soylendi"]=True
+                    hatirlatma_kaydet(HATIRLATMALAR)
+                except Exception as e:
+                    print("HATIRLATMA hata:", e)
+
+def guc_izle():
+    # dusuk voltaj / throttle / sicaklik izler, olunca ekrana+sese uyari verir
+    son=""
+    while True:
+        try:
+            ham=subprocess.check_output(["vcgencmd","get_throttled"],timeout=5).decode().strip()
+            val=int(ham.split("=")[1],16)
+            try: sic=subprocess.check_output(["vcgencmd","measure_temp"],timeout=5).decode().strip().split("=")[1]
+            except Exception: sic="?"
+            u=""
+            if val & 0x1:   u="Guc dusuk (dusuk voltaj). Adaptoru kontrol et."
+            elif val & 0x4: u="Islemci kisildi (throttle)."
+            elif val & 0x8: u="Sicaklik yuksek: "+sic
+            DURUM["uyari"]=u
+            if u and u!=son:
+                log("GUC UYARI:",u,ham,sic)
+                try: konus(u)
+                except Exception: pass
+            son=u
+        except Exception:
+            pass
+        time.sleep(20)
 
 def klavye_dongusu():
+    try: subprocess.run(["pkill","mpv"],timeout=5); subprocess.run(["pkill","ffplay"],timeout=5)
+    except Exception: pass
     print("BILGE hazir. Cikis: q")
     konus("Merhaba Ilhan, ben Bilge. Buyur, dinliyorum.")
     gecmis=[]
     threading.Thread(target=web_dinle,args=(gecmis,),daemon=True).start()
     threading.Thread(target=hatirlatma_kontrol,daemon=True).start()
+    threading.Thread(target=guc_izle,daemon=True).start()
     while True:
         try:
             soru=input("Sen: ")
@@ -398,8 +470,7 @@ def klavye_dongusu():
             break
         if soru=="q": break
         with _kilit:
-            dusun_cevapla(soru, gecmis)
-            if len(gecmis)>20: gecmis[:]=gecmis[-20:]
+            guvenli_cevapla(soru, gecmis)
 
 def mikrofon_dongusu():
     import numpy as np, sounddevice as sd
@@ -427,8 +498,12 @@ def mikrofon_dongusu():
             soru=" ".join(x.text.strip() for x in segs).strip()
             if len(soru)<2: DURUM["d"]="hazir"; continue
             with _kilit:
-                print("Sen:", soru); dusun_cevapla(soru, gecmis)
-                if len(gecmis)>20: gecmis[:]=gecmis[-20:]
+                print("Sen:", soru); guvenli_cevapla(soru, gecmis)
 
-if MIKROFON: mikrofon_dongusu()
-else: klavye_dongusu()
+try:
+    if MIKROFON: mikrofon_dongusu()
+    else: klavye_dongusu()
+except KeyboardInterrupt:
+    pass
+except Exception as _e:
+    log("OLUMCUL HATA:", _e); log(traceback.format_exc()); time.sleep(2); raise
