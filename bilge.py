@@ -209,15 +209,36 @@ def konus(metin):
     if not metin: return
     DURUM["d"]="konusuyor"
     try:
-        import edge_tts, asyncio
-        # asyncio.run() yan thread'lerde (sohbet kutusu/hatirlatma) cokuyor;
-        # her thread'de calisan yeni event loop kullan
-        dongu=asyncio.new_event_loop()
+        # --- 1) MP3 uret: once python edge_tts (her thread'de calisan loop), olmazsa edge-tts komutu ---
+        uretildi=False
         try:
-            dongu.run_until_complete(edge_tts.Communicate(metin, SES).save("/tmp/b.mp3"))
-        finally:
-            dongu.close()
-        pr=subprocess.Popen(["ffplay","-nodisp","-autoexit","-loglevel","quiet","/tmp/b.mp3"])
+            import edge_tts, asyncio
+            dongu=asyncio.new_event_loop()
+            try:
+                dongu.run_until_complete(edge_tts.Communicate(metin, SES).save("/tmp/b.mp3"))
+            finally:
+                dongu.close()
+            uretildi=True
+        except Exception as e1:
+            try: log("TTS-uretim1 hata:", repr(e1))
+            except Exception: pass
+            try:
+                subprocess.run(["edge-tts","--voice",SES,"--text",metin,"--write-media","/tmp/b.mp3"],
+                               timeout=30, check=True)
+                uretildi=True
+            except Exception as e2:
+                try: log("TTS-uretim2 hata:", repr(e2))
+                except Exception: pass
+        if not uretildi:
+            DURUM["d"]="hazir"; return
+        # --- 2) Cal: mpv ile dogrudan projektor kartina (card 1), olmazsa ffplay ---
+        pr=None
+        try:
+            pr=subprocess.Popen(["mpv","--no-terminal","--audio-device=alsa/plughw:1,0","/tmp/b.mp3"])
+        except Exception as e3:
+            try: log("TTS-cal1 hata:", repr(e3))
+            except Exception: pass
+            pr=subprocess.Popen(["ffplay","-nodisp","-autoexit","-loglevel","quiet","/tmp/b.mp3"])
         _calan["p"]=pr; pr.wait()
     except Exception as e:
         print("SES hata:", repr(e))
