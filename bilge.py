@@ -100,6 +100,7 @@ except: pass
 SES = "tr-TR-EmelNeural"
 
 _muzik={"p":None}
+_muzik_arama={"q":""}
 def baslik_temizle(b):
     b=re.sub(r'[\(\[\{][^)\]\}]*(?:official|video|audio|lyric|lyrics|visualizer|visualiser|remaster|remastered|4k|8k|hd|hq|full ?hd|mv|clip|klip|muzik|prod|explicit|sub|turkce|ceviri|color coded)[^)\]\}]*[\)\]\}]','',b,flags=re.IGNORECASE)
     b=re.sub(r'\s*[\-\|]\s*(?:official\s*)?(?:music\s*)?(?:video|audio|lyric\s*video|visualizer)\s*$','',b,flags=re.IGNORECASE)
@@ -108,6 +109,7 @@ def baslik_temizle(b):
 
 def muzik_cal(arama):
     muzik_durdur()
+    _muzik_arama["q"]=arama
     def _iste():
         try:
             cikti=subprocess.check_output(["yt-dlp","-f","bestaudio","-g","--print","%(title)s","ytsearch1:"+arama],
@@ -116,6 +118,10 @@ def muzik_cal(arama):
             link=next((x for x in cikti if x.startswith("http")),"")
             baslik=baslik_temizle(next((x for x in cikti if not x.startswith("http")),arama))
             if link:
+                # TTS card 1'i kullaniyorsa bitene kadar bekle (cakisma olmasin)
+                bekle=0
+                while _calan["p"] and _calan["p"].poll() is None and bekle<150:
+                    time.sleep(0.1); bekle+=1
                 logf=open("/tmp/mpv.log","w")
                 _muzik["p"]=subprocess.Popen(["mpv","--no-terminal","--no-video","--audio-device=alsa/plughw:1,0",link],
                             stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=logf)
@@ -128,7 +134,7 @@ def muzik_cal(arama):
     return None
 def muzik_durdur():
     if _muzik["p"] and _muzik["p"].poll() is None: _muzik["p"].terminate()
-    _muzik["p"]=None; DURUM["muzik"]=False; DURUM["muzik_ad"]=""
+    _muzik["p"]=None; DURUM["muzik"]=False; DURUM["muzik_ad"]=""; _muzik_arama["q"]=""
 def muzik_duraklat():
     if _muzik["p"] and _muzik["p"].poll() is None:
         try: os.kill(_muzik["p"].pid, signal.SIGSTOP); DURUM["muzik"]=False
@@ -208,6 +214,15 @@ def konus(metin):
     metin=ses_metni(metin)
     if not metin: return
     DURUM["d"]="konusuyor"
+    # DUCKING: card 1 tek uygulamalik; konusurken muzigi durdur, sonra geri baslat
+    _duck=None
+    try:
+        if _muzik["p"] and _muzik["p"].poll() is None:
+            _duck=_muzik_arama["q"]
+            try: _muzik["p"].terminate()
+            except Exception: pass
+            _muzik["p"]=None; DURUM["muzik"]=False
+    except Exception: pass
     try:
         # --- 1) MP3 uret: once python edge_tts (her thread'de calisan loop), olmazsa edge-tts komutu ---
         uretildi=False
@@ -246,6 +261,8 @@ def konus(metin):
         except Exception: pass
     finally:
         _calan["p"]=None; DURUM["d"]="hazir"
+        if _duck:
+            threading.Thread(target=lambda: muzik_cal(_duck), daemon=True).start()
 def sustur():
     if _calan["p"] and _calan["p"].poll() is None: _calan["p"].terminate()
 
