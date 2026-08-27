@@ -212,9 +212,11 @@ def muzik_cal(arama, video=False):
             if video:
                 ortam = dict(os.environ); ortam["DISPLAY"] = ":0"
                 _muzik["p"] = subprocess.Popen(["mpv","--no-terminal","--fullscreen",
+                                                "--input-ipc-server=/tmp/mpvsock",
                                                 "--audio-device="+MUZIK_CIHAZ, link], env=ortam)
             else:
                 _muzik["p"] = subprocess.Popen(["mpv","--no-terminal","--no-video",
+                                                "--input-ipc-server=/tmp/mpvsock",
                                                 "--audio-device="+MUZIK_CIHAZ, link])
             _muzik["ad"] = arama
             tam = _baslik_ayikla(baslik or arama)[:80]
@@ -224,6 +226,17 @@ def muzik_cal(arama, video=False):
         except Exception as e:
             log("Muzik hata:", repr(e))
     threading.Thread(target=_iste, daemon=True).start()
+
+def muzik_ses(seviye):
+    # calan muzigin sesini IPC ile ayarla (0-100). Muzigi durdurmaz, sadece kisar/acar.
+    try:
+        import socket, json as _j
+        s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM); s.settimeout(0.5)
+        s.connect("/tmp/mpvsock")
+        s.send((_j.dumps({"command":["set_property","volume",seviye]})+"\n").encode())
+        s.close(); return True
+    except Exception:
+        return False
 
 def muzik_durdur():
     _muzik["kapali"] = True   # kullanici durdurdu -> ducking geri baslatmasin
@@ -246,9 +259,28 @@ def ses_ayarla(komut):
 
 # ============================ SITE ACMA =====================================
 _site = {"p": None}
+BILINEN_SITELER = {
+    "youtube":"https://www.youtube.com","google":"https://www.google.com",
+    "gmail":"https://mail.google.com","haber":"https://www.google.com/search?q=son+dakika+haberler",
+    "hava":"https://www.google.com/search?q=hava+durumu+amasya",
+    "amasya universitesi":"https://www.amasya.edu.tr","amasya üniversitesi":"https://www.amasya.edu.tr",
+    "youtube muzik":"https://music.youtube.com","harita":"https://www.google.com/maps",
+    "çeviri":"https://translate.google.com","ceviri":"https://translate.google.com",
+    "wikipedia":"https://tr.wikipedia.org","eksi":"https://eksisozluk.com",
+}
+def _url_coz(metin):
+    m = metin.strip().lower()
+    for anahtar, url in BILINEN_SITELER.items():
+        if anahtar in m: return url
+    # adres gibi mi? (nokta iceriyor, bosluk yok) -> dogrudan
+    if "." in metin and " " not in metin.strip():
+        return metin if metin.startswith("http") else "https://"+metin.strip()
+    # emin degil -> Google'da arat (yanlis adres acmaktansa)
+    import urllib.parse
+    return "https://www.google.com/search?q="+urllib.parse.quote(metin)
+
 def site_ac(url):
-    url = url.strip()
-    if not url.startswith("http"): url = "https://" + url
+    url = _url_coz(url)
     site_kapat()
     ortam = dict(os.environ); ortam["DISPLAY"] = ":0"
     try:
@@ -360,6 +392,10 @@ def etiket_isle(cevap):
     # 5) SITE
     msi = re.search(r'\[SITE:(.*?)\]', cevap)
     if msi: site_ac(msi.group(1).strip())
+    mara = re.search(r'\[ARA:(.*?)\]', cevap)
+    if mara:
+        import urllib.parse
+        site_ac("https://www.google.com/search?q="+urllib.parse.quote(mara.group(1).strip()))
     # 6) HATIRLAT
     mh = re.search(r'\[HATIRLAT:(.*?)\]', cevap)
     if mh:
@@ -553,15 +589,25 @@ def konusma_dongusu(gecmis):
             pencere = (time.time() - aktif_son[0]) < WAKE_PENCERE
             if WAKE_MODU and not wake and not pencere:
                 DURUM["d"] = "hazir"; log("(hitap yok):", metin); continue
+            # A: wake duyuldu -> muzik calıyorsa sesini kıs (komutu net duy)
+            muzik_kisildi = False
+            if wake and _muzik["p"] and _muzik["p"].poll() is None:
+                if muzik_ses(25): muzik_kisildi = True
             soru = metin
             if wake:
-                for w in WAKE: soru = re.sub(r'(?i)'+re.escape(w), '', soru)
+                for w in WAKE_KESIN: soru = re.sub(r'(?i)'+re.escape(w), '', soru)
+                for w in WAKE_BAS: soru = re.sub(r'(?i)^'+re.escape(w), '', soru.strip())
                 soru = soru.strip(" ,.?!:;").strip()
             if not soru:
-                aktif_son[0] = time.time(); konus("Efendim?"); DURUM["d"] = "hazir"; continue
+                aktif_son[0] = time.time(); konus("Efendim?"); DURUM["d"] = "hazir"
+                if muzik_kisildi and _muzik["p"] and _muzik["p"].poll() is None: muzik_ses(100)
+                continue
             log("Sen (ses):", soru)
             mesaj_isle(soru, gecmis)
             aktif_son[0] = time.time()
+            # muzik hala calıyorsa (durdurulmadıysa) sesi geri ac
+            if muzik_kisildi and _muzik["p"] and _muzik["p"].poll() is None:
+                time.sleep(0.3); muzik_ses(100)
 
 # ============================ ANA ===========================================
 if TEST_MODU:
