@@ -153,7 +153,8 @@ def konus(metin):
             log("TTS uretim hata:", repr(e))
         if uretildi:
             try:
-                pr = subprocess.Popen(["mpv","--no-terminal","--audio-device="+TTS_CIHAZ,"/tmp/b.mp3"])
+                pr = subprocess.Popen(["mpv","--no-terminal","--audio-samplerate=48000",
+                                       "--audio-device="+TTS_CIHAZ,"/tmp/b.mp3"])
             except Exception:
                 pr = subprocess.Popen(["ffplay","-nodisp","-autoexit","-loglevel","quiet","/tmp/b.mp3"])
             _calan["p"] = pr; pr.wait()
@@ -241,9 +242,14 @@ def muzik_ses(seviye):
 def muzik_durdur():
     _muzik["kapali"] = True   # kullanici durdurdu -> ducking geri baslatmasin
     try:
-        if _muzik["p"] and _muzik["p"].poll() is None: _muzik["p"].terminate()
+        if _muzik["p"] and _muzik["p"].poll() is None:
+            _muzik["p"].terminate()
+            try: _muzik["p"].wait(timeout=1.5)   # cihazi tam biraksin
+            except Exception:
+                _muzik["p"].kill()
     except Exception: pass
     _muzik["p"] = None
+    time.sleep(0.3)   # Jabra serbest kalsin, konusma bozulmasin
     with _kilit: DURUM["muzik"]=False; DURUM["muzik_ad"]=""; DURUM["muzik_sanatci"]=""
 
 # ============================ SES SEVIYESI ==================================
